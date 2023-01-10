@@ -1,4 +1,4 @@
-// taken from "tcp_server.c" file from recitation 10
+// code based on "tcp_server.c" file from recitation 10
 
 #define _GNU_SOURCE
 
@@ -71,11 +71,18 @@ int main(int argc, char *argv[])
     struct sockaddr_in my_addr;
     struct sockaddr_in peer_addr;
     socklen_t addrsize = sizeof(struct sockaddr_in );
-
-    time_t ticks;
     listenfd = socket( AF_INET, SOCK_STREAM, 0 );
-    memset( &serv_addr, 0, addrsize );
 
+    // Set socket options
+//  written as explained in : https://linux.die.net/man/3/setsockopt
+    int val = 1;
+    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) < 0) {
+        perror("Error setting socket options");
+        close(listenfd);
+        return 1;
+    }
+
+    memset( &serv_addr, 0, addrsize );
     serv_addr.sin_family = AF_INET;
     // INADDR_ANY = any local machine address
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -95,20 +102,26 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    while( 1 )
+    while( !sigint_flag )
     {
-        if (sigint_flag){
-            print_pcc_total();
-        }
         // Accept a connection.
         connfd = accept( listenfd,
                          (struct sockaddr*) &peer_addr,
                          &addrsize);
 
-        if( connfd < 0 && errno != EINTR)
+        if( connfd < 0)
         {
-            printf("\n Error : Accept Failed. %s \n", strerror(errno));
-            return 1;
+            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
+                printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                close(connfd);
+                connfd=-1;
+                continue;
+
+            }
+            else{
+                printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                exit(1);
+            }
         }
         getsockname(connfd, (struct sockaddr*) &my_addr,   &addrsize);
         getpeername(connfd, (struct sockaddr*) &peer_addr, &addrsize);
@@ -126,7 +139,18 @@ int main(int argc, char *argv[])
                           data_buff + totalsent,
                          notwritten);
             // check if error occured (client closed connection?)
-            assert(Nsent >= 0);
+            if (Nsent < 0){
+                if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
+                    printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                    close(connfd);
+                    connfd=-1;
+                    continue;
+                }
+                else{
+                    printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                    exit(1);
+                }
+            }
             printf("Server: wrote %d bytes\n", Nsent);
 //            update current_pcc_total of current client
             for (int i = 0; i < notwritten; ++i) {
@@ -140,18 +164,29 @@ int main(int argc, char *argv[])
             notwritten -= Nsent;
         }
 
+        // Send character count to client
         memcpy(data_buff, &printable_counter, 4 );
         if (write(connfd, data_buff, 4) != 4){
-//          TODO handle errors
+            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
+                printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                close(connfd);
+                connfd=-1;
+                continue;
+            }
+            else{
+                printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                exit(1);
+            }
         }
 
 //        update pcc_total before closing connection
         for (int i = 0; i < 1024; ++i) {
             pcc_total[i] += current_pcc_total[i];
         }
-
         // close socket
         close(connfd);
+        connfd=-1;
     }
+    print_pcc_total();
     exit(0);
 }
