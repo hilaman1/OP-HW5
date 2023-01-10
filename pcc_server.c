@@ -15,33 +15,56 @@
 #include <assert.h>
 #include <signal.h>
 
-uint32_t pcc_total[95];
+static unsigned int pcc_total[95] = {0};
+int sigint_flag = 0;
+int connfd = -1;
 
-int main(int argc, char *argv[])
-{
-    if (argc != 2){
-        perror("Invalid input");
+void print_pcc_total(){
+    int i;
+    for (i = 0; i < 95; ++i){
+        printf("char '%c' : %u times\n", i+32, pcc_total[i]);
     }
-    uint16_t server_port;
-    server_port = atoi(argv[1]);
+}
 
-//    If the server receives a SIGINT signal,
+// a function that prints valid char if Cntrl+C is pressed
+void sigint_handler(){
+    sigint_flag = 1;
+    if (connfd <= 0){
+        print_pcc_total();
+        exit(0);
+    }
+}
+
+int sig_handler(){
+    //    If the server receives a SIGINT signal,
 //    taken from my solution to HW2:
     struct sigaction newAction;
     memset(&newAction, 0, sizeof(newAction));
-    newAction.sa_handler = SIG_IGN;
+    newAction.sa_handler = sigint_handler;
     newAction.sa_flags = SA_RESTART;
     if (sigaction(SIGINT, &newAction, NULL) == -1) {
         fprintf(stderr, "Signal handle registration failed on error: %s\n", strerror(errno));
         return 1;
     }
+    return 0;
+}
 
-    int pcc_total = -1;
-    int nsent     = -1;
-    int len       = -1;
-    int n         =  0;
+
+int main(int argc, char *argv[])
+{
+    unsigned int current_pcc_total[95] = {0};
+    char data_buff[1024];
+    int totalsent = -1;
+    int Nsent     = -1;
     int listenfd  = -1;
-    int connfd    = -1;
+    int printable_counter = 0;
+
+    if (argc != 2){
+        perror("Invalid input");
+        exit(1);
+    }
+    uint16_t server_port = (uint16_t) atoi(argv[1]);
+    sig_handler();
 
 
     struct sockaddr_in serv_addr; // where to listen
@@ -49,7 +72,6 @@ int main(int argc, char *argv[])
     struct sockaddr_in peer_addr;
     socklen_t addrsize = sizeof(struct sockaddr_in );
 
-    char data_buff[1024];
     time_t ticks;
     listenfd = socket( AF_INET, SOCK_STREAM, 0 );
     memset( &serv_addr, 0, addrsize );
@@ -75,35 +97,23 @@ int main(int argc, char *argv[])
 
     while( 1 )
     {
+        if (sigint_flag){
+            print_pcc_total();
+        }
         // Accept a connection.
-        // Can use NULL in 2nd and 3rd arguments
-        // but we want to print the client socket details
         connfd = accept( listenfd,
                          (struct sockaddr*) &peer_addr,
                          &addrsize);
 
-        if( connfd < 0 )
+        if( connfd < 0 && errno != EINTR)
         {
             printf("\n Error : Accept Failed. %s \n", strerror(errno));
             return 1;
         }
-
         getsockname(connfd, (struct sockaddr*) &my_addr,   &addrsize);
         getpeername(connfd, (struct sockaddr*) &peer_addr, &addrsize);
-        printf( "Server: Client connected.\n"
-                "\t\tClient IP: %s Client Port: %d\n"
-                "\t\tServer IP: %s Server Port: %d\n",
-                inet_ntoa( peer_addr.sin_addr ),
-                ntohs(     peer_addr.sin_port ),
-                inet_ntoa( my_addr.sin_addr   ),
-                ntohs(     my_addr.sin_port   ) );
 
-        // write time
-        ticks = time(NULL);
-        snprintf( data_buff, sizeof(data_buff),
-                  "%.24s\r\n", ctime(&ticks));
-
-        pcc_total = 0;
+        totalsent = 0;
         int notwritten = strlen(data_buff);
 
         // keep looping until nothing left to write
@@ -111,19 +121,37 @@ int main(int argc, char *argv[])
         {
             // notwritten = how much we have left to write
             // totalsent  = how much we've written so far
-            // nsent = how much we've written in last write() call */
-            nsent = write(connfd,
-                          data_buff + pcc_total,
-                          notwritten);
+            // Nsent = how much we've written in last write() call */
+            Nsent = read(connfd,
+                          data_buff + totalsent,
+                         notwritten);
             // check if error occured (client closed connection?)
-            assert( nsent >= 0);
-            printf("Server: wrote %d bytes\n", nsent);
+            assert(Nsent >= 0);
+            printf("Server: wrote %d bytes\n", Nsent);
+//            update current_pcc_total of current client
+            for (int i = 0; i < notwritten; ++i) {
+                if ( 32 <= data_buff[i] && data_buff[i] <= 126){
+                    current_pcc_total[data_buff[i] - 32] ++;
+                    printable_counter ++;
+                }
 
-            pcc_total  += nsent;
-            notwritten -= nsent;
+            }
+            totalsent  += Nsent;
+            notwritten -= Nsent;
+        }
+
+        memcpy(data_buff, &printable_counter, 4 );
+        if (write(connfd, data_buff, 4) != 4){
+//          TODO handle errors
+        }
+
+//        update pcc_total before closing connection
+        for (int i = 0; i < 1024; ++i) {
+            pcc_total[i] += current_pcc_total[i];
         }
 
         // close socket
         close(connfd);
     }
+    exit(0);
 }
