@@ -1,7 +1,4 @@
-// code based on "tcp_server.c" file from recitation 10
-
-#define _GNU_SOURCE
-
+// code based on "tcp_client.c" and "tcp_server.c" files from recitation 10
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -21,7 +18,6 @@ void print_pcc_total(){
     for (i = 0; i < 95; ++i){
         printf("char '%c' : %u times\n", i+32, pcc_total[i]);
     }
-    exit(0);
 }
 
 // a function that prints valid char if Cntrl+C is pressed
@@ -54,13 +50,13 @@ int main(int argc, char *argv[])
     char data_buff[1024];
     int listenfd  = -1;
     uint32_t C, N;
-    struct sockaddr_in my_addr;
 
     if (argc != 2){
         perror("Invalid input");
         exit(1);
     }
     int server_port = atoi(argv[1]);
+
     sig_handler();
     memset( &pcc_total, 0, sizeof(pcc_total));
 
@@ -100,119 +96,90 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    while( 1 )
+    while(! sigint_flag )
     {
         memset(current_pcc_total, 0, sizeof(current_pcc_total));
-
-        if (sigint_flag){
-            print_pcc_total();
-        }
         // Accept a connection.
         connfd = accept( listenfd,
                          (struct sockaddr*) &peer_addr,
                          &addrsize);
         if( connfd < 0 )
         {
-            printf("\n Error : Accept Failed. %s \n", strerror(errno));
-            return 1;
-        }
-
-        //    code taken from: https://stackoverflow.com/questions/9140409/transfer-integer-over-a-socket-in-c
-
-        uint32_t conv;
-        char *data = (char *) &conv;
-        int bytes_left_to_write = 0;
-        int bytes_read = 0;
-//    client writes file size to server
-        while (bytes_left_to_write < 4){
-            bytes_read = read(connfd, data + bytes_left_to_write, 4 - bytes_left_to_write);
-            if (bytes_read < 0) {
-                if (errno != ETIMEDOUT || errno != ECONNRESET || errno != EPIPE){
-                    perror("Failed reading file size from client");
-                    exit(1);
-                }
-                else{
-                    perror("Failed reading file size from client");
-                    continue;
-                }
-            }
-            bytes_left_to_write += bytes_read;
-            if (bytes_read == 0 && bytes_left_to_write < 4){
-                perror("Failed sending file size to server");
+            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
+                printf("\n Error : Accept Failed. %s \n", strerror(errno));
                 close(connfd);
-                connfd=-1;
+                connfd =-1;
+                continue;
+            } else{
+                printf("\n Error : Accept Failed. %s \n", strerror(errno));
+                exit(1);
+            }
+        }
+        //    client writes file size to server
+        if( read(connfd, data_buff, 4)!=4)
+        {
+            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
+                perror("Failed reading file size from client");
+                close(connfd);
+                connfd =-1;
                 continue;
             }
-
+            else{
+                perror("Failed reading file size from client");
+                exit(1);
+            }
         }
         //    client writes N bytes from file to server
 
-        N = ntohl(conv);
-        memcpy(&N, data_buff, 4 );
+        memcpy(&N, data_buff, 4);
+        N = ntohl(N);
+        C=0;
+        unsigned int bytes_left_to_read = N;
+        unsigned int bytes_read = 0;
+        unsigned int buff_size = 0;
 
-        bytes_left_to_write = 0;
-        bytes_read = 0;
-        while (bytes_left_to_write < N){
-            bytes_read = read(connfd, data_buff + bytes_left_to_write, N - bytes_left_to_write);
-            if (bytes_read < 0) {
-                if (errno != ETIMEDOUT || errno != ECONNRESET || errno != EPIPE){
+        while (bytes_left_to_read > 0){
+            if (sizeof (data_buff) <= bytes_left_to_read){
+                buff_size = sizeof (data_buff);
+            } else{
+                buff_size = bytes_left_to_read;
+            }
+            bytes_read = read(connfd, data_buff, buff_size);
+            if (bytes_read < 0){
+                if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                     perror("Failed reading N bytes from client to server");
-                    exit(1);
+                    close(connfd);
+                    connfd =-1;
+                    continue;
                 }
                 else{
                     perror("Failed reading N bytes from client to server");
-                    continue;
-                }
-            }
-            else if (bytes_read == 0 && bytes_left_to_write < N){
-                perror("Failed reading N bytes from client to server");
-                close(connfd);
-                connfd=-1;
-                continue;
-
-            }
-            bytes_left_to_write += bytes_read;
-        }
-        C = 0;
-        for(int i = 0; i < 95; i++){
-            current_pcc_total[i] = 0;
-        }
-        //       update current_pcc_total of current client
-        for (int i = 0; i < N; ++i) {
-            if ( 32 <= data_buff[i] && data_buff[i] <= 126){
-                current_pcc_total[data_buff[i] - 32] ++;
-                C ++;
-            }
-
-        }
-
-
-//    code taken from: https://stackoverflow.com/questions/9140409/transfer-integer-over-a-socket-in-c
-//      send C to client
-        conv = htonl(C);
-        data = (char *) &conv;
-        bytes_left_to_write = 0;
-        bytes_read = 0;
-//    client writes file size to server
-        while (bytes_left_to_write < 4){
-            bytes_read = write(connfd, data + bytes_left_to_write, 4 - bytes_left_to_write);
-            if (bytes_read < 0) {
-                if (errno != ETIMEDOUT || errno != ECONNRESET || errno != EPIPE){
-                    perror("Failed sending C to client");
                     exit(1);
                 }
-                else{
-                    perror("Failed sending C to client");
-                    continue;
-                }
             }
-            else if (bytes_read == 0 && bytes_left_to_write < 4){
+            //       update current_pcc_total of current client
+            for (int i = 0; i < bytes_read; ++i) {
+                if ( 32 <= data_buff[i] && data_buff[i] <= 126){
+                    current_pcc_total[data_buff[i] - 32] ++;
+                    C ++;
+                }
+
+            }
+            bytes_left_to_read -= bytes_read;
+        }
+        C = htonl(C);
+        memcpy(data_buff, &C, 4);
+        if (write(connfd, data_buff, 4) != 4){
+            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                 perror("Failed sending C to client");
                 close(connfd);
-                connfd=-1;
+                connfd =-1;
                 continue;
             }
-            bytes_left_to_write += bytes_read;
+            else{
+                perror("Failed sending C to client");
+                exit(1);
+            }
         }
 
 //        update pcc_total before closing connection
@@ -223,4 +190,6 @@ int main(int argc, char *argv[])
         close(connfd);
         connfd=-1;
     }
+    print_pcc_total();
+    exit(0);
 }

@@ -1,16 +1,13 @@
-// taken from "tcp_client.c" file from recitation 10
+// code based on "tcp_client.c" and "tcp_server.c" files from recitation 10
 
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <netinet/in.h>
-#include <netdb.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <arpa/inet.h>
-#include <errno.h>
 #include <fcntl.h>
 
 
