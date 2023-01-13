@@ -8,6 +8,7 @@
 #include <string.h>
 #include <signal.h>
 
+
 unsigned int pcc_total[95];
 
 int sigint_flag = 0;
@@ -47,6 +48,7 @@ int sig_handler(){
 int main(int argc, char *argv[])
 {
     int not_written, total_sent, nsent;
+    int buff_size;
 
     unsigned int current_pcc_total[95];
     char data_buff[1024];
@@ -121,7 +123,7 @@ int main(int argc, char *argv[])
         not_written = 4; // how much we have left to write
         total_sent = 0; // how much we've written so far
         while (not_written > 0){
-            nsent = read(sockfd, data_buff + total_sent, not_written);
+            nsent = read(connfd, data_buff + total_sent, not_written);
             if (nsent <= 0){
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                     perror("Failed reading N bytes from client to server");
@@ -146,12 +148,12 @@ int main(int argc, char *argv[])
         not_written = N; // how much we have left to write
         total_sent = 0; // how much we've written so far
         while (not_written > 0){
-            if (sizeof (data_buff) <= bytes_left_to_read){
+            if (sizeof (data_buff) <= not_written){
                 buff_size = sizeof (data_buff);
             } else{
-                buff_size = bytes_left_to_read;
+                buff_size = not_written;
             }
-            nsent = read(sockfd, data_buff, buff_size, not_written);
+            nsent = read(connfd, data_buff, buff_size);
             if (nsent <= 0){
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                     perror("Failed sending N bytes to server");
@@ -180,7 +182,7 @@ int main(int argc, char *argv[])
         not_written = 4; // how much we have left to write
         total_sent = 0; // how much we've written so far
         while (not_written > 0){
-            nsent = write(sockfd, data_buff, not_written);
+            nsent = write(connfd, data_buff, not_written);
             if (nsent <= 0){
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                     perror("Failed sending C to client");
