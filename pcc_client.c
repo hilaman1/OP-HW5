@@ -16,6 +16,9 @@ int main(int argc, char *argv[]) {
         printf("Invalid input");
         return 1;
     }
+    int not_read, total_read, nread, bytes_read;
+    int not_written, total_sent, nsent;
+
     char *server_ip_add = argv[1];
     uint16_t server_port = (uint16_t) atoi(argv[2]);
     char *file_path = argv[3];
@@ -63,34 +66,49 @@ int main(int argc, char *argv[]) {
     }
 
 //  sending file size to server
-    if( write(sockfd, recv_buff, 4)!=4)
-    {
-        perror("Failed sending file size from client to server");
-        exit(1);
+    not_written = 4; // how much we have left to write
+    total_sent = 0; // how much we've written so far
+    while (not_written > 0){
+        nsent = write(sockfd, recv_buff + total_sent, not_written);
+        if (nsent <= 0){
+            perror("Failed sending file size to server");
+            exit(1);
+        }
+        total_sent += nsent;
+        not_written -= nsent;
     }
 
     //  sending N bytes to server
-
     int fd = open(file_path,  O_RDONLY );
-    unsigned int bytes_read = 0;
-    unsigned int bytes_written = 0;
     while ((bytes_read = read(fd, recv_buff, sizeof (recv_buff)))){
-        bytes_written = write(sockfd, recv_buff, bytes_read);
-        if (bytes_written <= 0){
-            perror("Failed sending N bytes to server");
-            exit(1);
+        not_written = bytes_read; // how much we have left to write
+        total_sent = 0; // how much we've written so far
+        while (not_written > 0){
+            nsent = write(sockfd, recv_buff + total_sent, not_written);
+            if (nsent <= 0){
+                perror("Failed sending N bytes to server");
+                exit(1);
+            }
+            total_sent += nsent;
+            not_written -= nsent;
         }
     }
 
-
-//    get C from server
-    if( read(sockfd, recv_buff, 4)!=4)
-    {
-        perror("Failed reading C from server");
-        exit(1);
+    //    get C from server
+    not_written = 4; // how much we have left to write
+    total_sent = 0; // how much we've written so far
+    while (not_written > 0){
+        nsent = read(sockfd, recv_buff + total_sent, not_written);
+        if (nsent <= 0){
+            perror("Failed reading C from server");
+            exit(1);
+        }
+        total_sent += nsent;
+        not_written -= nsent;
     }
-    close(sockfd);
 
+
+    close(sockfd);
     memcpy( &C , recv_buff, 4 );
     C = ntohl(C);
     printf("# of printable characters: %u\n", C);

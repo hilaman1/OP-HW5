@@ -20,7 +20,7 @@ void print_pcc_total(){
     }
 }
 
-// a function that prints valid char if Cntrl+C is pressed
+// a function that prints valid char statistics if sigint happens
 void sigint_handler(){
     sigint_flag = 1;
     if (connfd <= 0){
@@ -46,6 +46,8 @@ int sig_handler(){
 
 int main(int argc, char *argv[])
 {
+    int not_written, total_sent, nsent;
+
     unsigned int current_pcc_total[95];
     char data_buff[1024];
     int listenfd  = -1;
@@ -116,36 +118,11 @@ int main(int argc, char *argv[])
             }
         }
         //    client writes file size to server
-        if( read(connfd, data_buff, 4)!=4)
-        {
-            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
-                perror("Failed reading file size from client");
-                close(connfd);
-                connfd =-1;
-                continue;
-            }
-            else{
-                perror("Failed reading file size from client");
-                exit(1);
-            }
-        }
-        //    client writes N bytes from file to server
-
-        memcpy(&N, data_buff, 4);
-        N = ntohl(N);
-        C=0;
-        unsigned int bytes_left_to_read = N;
-        unsigned int bytes_read = 0;
-        unsigned int buff_size = 0;
-
-        while (bytes_left_to_read > 0){
-            if (sizeof (data_buff) <= bytes_left_to_read){
-                buff_size = sizeof (data_buff);
-            } else{
-                buff_size = bytes_left_to_read;
-            }
-            bytes_read = read(connfd, data_buff, buff_size);
-            if (bytes_read < 0){
+        not_written = 4; // how much we have left to write
+        total_sent = 0; // how much we've written so far
+        while (not_written > 0){
+            nsent = read(sockfd, data_buff + total_sent, not_written);
+            if (nsent <= 0){
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                     perror("Failed reading N bytes from client to server");
                     close(connfd);
@@ -153,33 +130,71 @@ int main(int argc, char *argv[])
                     continue;
                 }
                 else{
-                    perror("Failed reading N bytes from client to server");
+                    perror("Failed reading file size from client");
+                    exit(1);
+                }
+            }
+            total_sent += nsent;
+            not_written -= nsent;
+        }
+
+        //    client writes N bytes from file to server
+
+        memcpy(&N, data_buff, 4);
+        N = ntohl(N);
+        C=0;
+        not_written = N; // how much we have left to write
+        total_sent = 0; // how much we've written so far
+        while (not_written > 0){
+            if (sizeof (data_buff) <= bytes_left_to_read){
+                buff_size = sizeof (data_buff);
+            } else{
+                buff_size = bytes_left_to_read;
+            }
+            nsent = read(sockfd, data_buff, buff_size, not_written);
+            if (nsent <= 0){
+                if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
+                    perror("Failed sending N bytes to server");
+                    close(connfd);
+                    connfd =-1;
+                    continue;
+                }
+                else{
+                    perror("Failed sending N bytes to server");
                     exit(1);
                 }
             }
             //       update current_pcc_total of current client
-            for (int i = 0; i < bytes_read; ++i) {
+            for (int i = 0; i < nsent; ++i) {
                 if ( 32 <= data_buff[i] && data_buff[i] <= 126){
                     current_pcc_total[data_buff[i] - 32] ++;
                     C ++;
                 }
-
             }
-            bytes_left_to_read -= bytes_read;
+            total_sent += nsent;
+            not_written -= nsent;
         }
         C = htonl(C);
         memcpy(data_buff, &C, 4);
-        if (write(connfd, data_buff, 4) != 4){
-            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
-                perror("Failed sending C to client");
-                close(connfd);
-                connfd =-1;
-                continue;
+//        write C to client
+        not_written = 4; // how much we have left to write
+        total_sent = 0; // how much we've written so far
+        while (not_written > 0){
+            nsent = write(sockfd, data_buff, not_written);
+            if (nsent <= 0){
+                if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
+                    perror("Failed sending C to client");
+                    close(connfd);
+                    connfd =-1;
+                    continue;
+                }
+                else{
+                    perror("Failed sending C to client");
+                    exit(1);
+                }
             }
-            else{
-                perror("Failed sending C to client");
-                exit(1);
-            }
+            total_sent += nsent;
+            not_written -= nsent;
         }
 
 //        update pcc_total before closing connection
@@ -190,6 +205,8 @@ int main(int argc, char *argv[])
         close(connfd);
         connfd=-1;
     }
-    print_pcc_total();
-    exit(0);
+    if (sigint_flag){
+        print_pcc_total();
+        exit(0);
+    }
 }
