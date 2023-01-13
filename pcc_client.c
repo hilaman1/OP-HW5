@@ -95,16 +95,16 @@ int main(int argc, char *argv[]) {
     }
 
     //    get C from server
-    not_written = 4; // how much we have left to write
-    total_sent = 0; // how much we've written so far
-    while (not_written > 0){
-        nsent = read(sockfd, recv_buff + total_sent, not_written);
-        if (nsent <= 0){
+    not_read = 4; // how much we have left to write
+    total_read = 0; // how much we've written so far
+    while (not_read > 0){
+        nread = read(sockfd, recv_buff + total_read, not_read);
+        if (nread <= 0){
             perror("Failed reading C from server");
             exit(1);
         }
-        total_sent += nsent;
-        not_written -= nsent;
+        total_sent += nread;
+        not_read -= nread;
     }
 
 
