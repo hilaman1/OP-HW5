@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
     total_sent = 0; // how much we've written so far
     while (not_written > 0){
         nsent = write(sockfd, recv_buff + total_sent, not_written);
-        if (nsent <= 0){
+        if (nsent < 0){
             perror("Failed sending file size to server");
             exit(1);
         }
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
         total_sent = 0; // how much we've written so far
         while (not_written > 0){
             nsent = write(sockfd, recv_buff + total_sent, not_written);
-            if (nsent <= 0){
+            if (nsent < 0){
                 perror("Failed sending N bytes to server");
                 exit(1);
             }

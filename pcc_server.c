@@ -47,6 +47,7 @@ int sig_handler(){
 
 int main(int argc, char *argv[])
 {
+    int connection_lost_flag;
     int not_written, total_sent, nsent;
     int not_read, total_read, nread;
 
@@ -104,6 +105,7 @@ int main(int argc, char *argv[])
 
     while(! sigint_flag )
     {
+        connection_lost_flag = 0;
         memset(current_pcc_total, 0, sizeof(current_pcc_total));
         // Accept a connection.
         connfd = accept( listenfd,
@@ -116,7 +118,12 @@ int main(int argc, char *argv[])
                 close(connfd);
                 connfd =-1;
                 continue;
-            } else{
+            }else if (connfd == 0 && connfd != errno){
+                perror("connection lost");
+                close(connfd);
+                connfd =-1;
+            }
+            else{
                 printf("\n Error : Accept Failed. %s \n", strerror(errno));
                 exit(1);
             }
@@ -131,7 +138,12 @@ int main(int argc, char *argv[])
                     perror("Failed reading N bytes from client to server");
                     close(connfd);
                     connfd =-1;
-                    continue;
+                    connection_lost_flag = 1;
+                    break;
+                }else if (nread == 0 && nread != errno){
+                    perror("connection lost");
+                    close(connfd);
+                    connfd =-1;
                 }
                 else{
                     perror("Failed reading file size from client");
@@ -140,6 +152,9 @@ int main(int argc, char *argv[])
             }
             total_read += nread;
             not_read -= nread;
+        }
+        if (connection_lost_flag){
+            continue;
         }
 
         //    client writes N bytes from file to server
@@ -161,7 +176,11 @@ int main(int argc, char *argv[])
                     perror("Failed sending N bytes to server");
                     close(connfd);
                     connfd =-1;
-                    continue;
+                    connection_lost_flag = 1;
+                    break;
+                }else if (nread == 0 && nread != errno) {
+                    perror("connection lost");
+                    close(connfd);
                 }
                 else{
                     perror("Failed sending N bytes to server");
@@ -185,12 +204,16 @@ int main(int argc, char *argv[])
         total_sent = 0; // how much we've written so far
         while (not_written > 0){
             nsent = write(connfd, data_buff, not_written);
-            if (nsent <= 0){
+            if (nsent < 0){
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE){
                     perror("Failed sending C to client");
                     close(connfd);
                     connfd =-1;
-                    continue;
+                    connection_lost_flag = 1;
+                    break;
+                }else if (nsent == 0 && nsent != errno) {
+                    perror("connection lost");
+                    close(connfd);
                 }
                 else{
                     perror("Failed sending C to client");
@@ -199,6 +222,9 @@ int main(int argc, char *argv[])
             }
             total_sent += nsent;
             not_written -= nsent;
+        }
+        if (connection_lost_flag){
+            continue;
         }
 
 //        update pcc_total before closing connection
